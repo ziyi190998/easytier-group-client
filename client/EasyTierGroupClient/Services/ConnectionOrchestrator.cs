@@ -150,7 +150,7 @@ public sealed class ConnectionOrchestrator : IDisposable
         _api?.Dispose();
         _api = new AllocApiClient(_cfg.ServiceUrl, _cfg.CertSha256);
         SetState(ConnState.Connecting, "正在申请虚拟 IP…");
-        _alloc = await _api.AllocAsync(_cfg.InviteCode, ct);
+        _alloc = await _api.AllocAsync(_cfg.InviteCode, _cfg.MachineId, ct);
         SimpleLog.Info($"已分配虚拟IP {MaskIp(_alloc.Ip)}");
 
         SetState(ConnState.Connecting, "正在建立组网…");
@@ -204,7 +204,7 @@ public sealed class ConnectionOrchestrator : IDisposable
                 bool alive;
                 try
                 {
-                    alive = await _api!.HeartbeatAsync(_cfg.InviteCode, _alloc.Ip, ct);
+                    alive = await _api!.HeartbeatAsync(_cfg.InviteCode, _alloc.Ip, _cfg.MachineId, ct);
                     misses = 0;
                 }
                 catch (OperationCanceledException) { throw; }
@@ -258,7 +258,7 @@ public sealed class ConnectionOrchestrator : IDisposable
         try
         {
             if (_api is not null && _alloc is not null)
-                _api.ReleaseAsync(_cfg.InviteCode, _alloc.Ip).Wait(TimeSpan.FromSeconds(8));
+                _api.ReleaseAsync(_cfg.InviteCode, _alloc.Ip, _cfg.MachineId).Wait(TimeSpan.FromSeconds(8));
         }
         catch { /* 释放尽力而为 */ }
         _et.Stop();
@@ -273,6 +273,7 @@ public sealed class ConnectionOrchestrator : IDisposable
     private static string DescribeApiError(AllocApiException ex) => ex switch
     {
         _ when ex.IsInvalidCode => "邀请码无效或已被停用，请打开「设置」检查邀请码。",
+        _ when ex.IsCodeInUse => "这个邀请码正在另一台电脑上使用（一人一码一机）。请勿共用邀请码，或联系管理员换新码。",
         _ when ex.IsPoolFull => "当前在线人数已满（最多 10 人），请稍后再试。",
         _ => $"服务端返回错误：{ex.Message}",
     };

@@ -19,6 +19,7 @@ public sealed class AllocApiException : Exception
 
     public bool IsInvalidCode => StatusCode == 401 && ErrorCode == "invalid_invite_code";
     public bool IsPoolFull => StatusCode == 503 && ErrorCode == "pool_exhausted";
+    public bool IsCodeInUse => StatusCode == 409 && ErrorCode == "code_in_use";
 }
 
 /// <summary>IP 分配服务客户端。TLS 校验采用证书指纹固定（防中间人截获口令）。</summary>
@@ -79,9 +80,10 @@ public sealed class AllocApiClient : IDisposable
         return doc;
     }
 
-    public async Task<AllocInfo> AllocAsync(string inviteCode, CancellationToken ct)
+    public async Task<AllocInfo> AllocAsync(string inviteCode, string machineId, CancellationToken ct)
     {
-        using var doc = await PostAsync("api/alloc", new[] { ("invite_code", inviteCode) }, ct);
+        using var doc = await PostAsync("api/alloc",
+            new[] { ("invite_code", inviteCode), ("machine_id", machineId) }, ct);
         var root = doc.RootElement;
         var peers = root.GetProperty("peer_urls").EnumerateArray()
             .Select(p => p.GetString() ?? "").Where(s => s.Length > 0).ToArray();
@@ -94,11 +96,12 @@ public sealed class AllocApiClient : IDisposable
     }
 
     /// <summary>心跳续期。返回 false 表示租约已丢失，需要重新申请 IP。</summary>
-    public async Task<bool> HeartbeatAsync(string inviteCode, string ip, CancellationToken ct)
+    public async Task<bool> HeartbeatAsync(string inviteCode, string ip, string machineId, CancellationToken ct)
     {
         try
         {
-            using var doc = await PostAsync("api/heartbeat", new[] { ("invite_code", inviteCode), ("ip", ip) }, ct);
+            using var doc = await PostAsync("api/heartbeat",
+                new[] { ("invite_code", inviteCode), ("ip", ip), ("machine_id", machineId) }, ct);
             return true;
         }
         catch (AllocApiException ex) when (ex.StatusCode == 409)
@@ -107,11 +110,12 @@ public sealed class AllocApiClient : IDisposable
         }
     }
 
-    public async Task ReleaseAsync(string inviteCode, string ip)
+    public async Task ReleaseAsync(string inviteCode, string ip, string machineId)
     {
         try
         {
-            using var doc = await PostAsync("api/release", new[] { ("invite_code", inviteCode), ("ip", ip) }, CancellationToken.None);
+            using var doc = await PostAsync("api/release",
+                new[] { ("invite_code", inviteCode), ("ip", ip), ("machine_id", machineId) }, CancellationToken.None);
         }
         catch (Exception)
         {

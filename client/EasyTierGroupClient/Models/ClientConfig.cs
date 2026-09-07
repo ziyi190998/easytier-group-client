@@ -19,6 +19,9 @@ public sealed class ClientConfig
     /// <summary>点击窗口 × 时的行为：ask（每次询问）/ hide（隐藏到托盘）/ exit（退出程序）。</summary>
     public string CloseAction { get; set; } = "ask";
 
+    /// <summary>本机持久标识（首启自动生成），服务端用于「一码一机」绑定。</summary>
+    public string MachineId { get; set; } = "";
+
     private static readonly JsonSerializerOptions JsonOpts = new() { WriteIndented = true };
 
     private static string Dir => Path.Combine(
@@ -28,19 +31,24 @@ public sealed class ClientConfig
 
     public static ClientConfig Load()
     {
+        ClientConfig cfg;
         try
         {
-            if (File.Exists(FilePath))
-            {
-                var cfg = JsonSerializer.Deserialize<ClientConfig>(File.ReadAllText(FilePath));
-                if (cfg is not null) return cfg;
-            }
+            cfg = File.Exists(FilePath)
+                ? JsonSerializer.Deserialize<ClientConfig>(File.ReadAllText(FilePath)) ?? new ClientConfig()
+                : new ClientConfig();
         }
         catch (Exception ex)
         {
             SimpleLog.Error("读取配置失败，使用默认配置", ex);
+            cfg = new ClientConfig();
         }
-        return new ClientConfig();
+        if (string.IsNullOrWhiteSpace(cfg.MachineId))
+        {
+            cfg.MachineId = Guid.NewGuid().ToString("N");
+            cfg.Save(); // 立即落盘，保证后续连接都用同一标识
+        }
+        return cfg;
     }
 
     public void Save()

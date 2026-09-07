@@ -20,6 +20,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"log"
 	"math/big"
@@ -35,6 +36,12 @@ import (
 	"syscall"
 	"time"
 )
+
+// errCodeInUse 表示邀请码已绑定在另一台机器上（一码一机）。
+var errCodeInUse = errors.New("code_in_use")
+
+// errMachineRequired 表示请求缺少机器标识（旧版客户端）。
+var errMachineRequired = errors.New("machine_id_required")
 
 // ---------------------------------------------------------------------------
 // 配置
@@ -115,6 +122,7 @@ type codeEntry struct {
 type lease struct {
 	Code           string    `json:"-"`
 	Note           string    `json:"-"`
+	MachineID      string    `json:"-"`
 	IP             string    `json:"ip"`
 	LastHeartbeat  time.Time `json:"-"`
 	AllocatedAt    time.Time `json:"allocated_at"`
@@ -176,41 +184,50 @@ func (s *allocServer) loadCodes() error {
 	return nil
 }
 
-// alloc 原子分配：同码重复申请幂等返回已持有 IP。
-func (s *allocServer) alloc(code string) (string, bool, error) {
+// alloc 原子分配，一码一机：
+//   - 同码同机：幂等返回已持有 IP（重连场景）；
+//   - 同码异机：拒绝（errCodeInUse）；
+//   - 新码：分配首个空闲 IP 并绑定机器。
+func (s *allocServer) alloc(code, machineID string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if ip, ok := s.byCode[code]; ok {
-		s.held[ip].LastHeartbeat = time.Now()
-		return ip, true, nil
+		if l, live := s.held[ip]; live {
+			if l.MachineID == machineID {
+				l.LastHeartbeat = time.Now()
+				return ip, nil
+			}
+			return "", errCodeInUse
+		}
+		delete(s.byCode, code) // 脏索引兜底
 	}
 	for _, ip := range s.pool {
 		if _, used := s.held[ip]; !used {
 			now := time.Now()
-			s.held[ip] = &lease{Code: code, Note: s.codes[code].Note, IP: ip, LastHeartbeat: now, AllocatedAt: now}
+			s.held[ip] = &lease{Code: code, Note: s.codes[code].Note, MachineID: machineID, IP: ip, LastHeartbeat: now, AllocatedAt: now}
 			s.byCode[code] = ip
-			return ip, true, nil
+			return ip, nil
 		}
 	}
-	return "", false, fmt.Errorf("pool_exhausted")
+	return "", errors.New("pool_exhausted")
 }
 
-func (s *allocServer) heartbeat(code, ip string) bool {
+func (s *allocServer) heartbeat(code, ip, machineID string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	l, ok := s.held[ip]
-	if !ok || l.Code != code {
+	if !ok || l.Code != code || l.MachineID != machineID {
 		return false
 	}
 	l.LastHeartbeat = time.Now()
 	return true
 }
 
-func (s *allocServer) release(code, ip string) bool {
+func (s *allocServer) release(code, ip, machineID string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	l, ok := s.held[ip]
-	if !ok || l.Code != code {
+	if !ok || l.Code != code || l.MachineID != machineID {
 		return false
 	}
 	delete(s.held, ip)
@@ -248,6 +265,7 @@ func (s *allocServer) codeValid(code string) bool {
 type allocReq struct {
 	InviteCode string `json:"invite_code"`
 	IP         string `json:"ip"`
+	MachineID  string `json:"machine_id"`
 }
 
 type allocResp struct {
@@ -285,13 +303,22 @@ func (s *allocServer) handleAlloc(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "invalid_invite_code")
 		return
 	}
-	ip, _, err := s.alloc(req.InviteCode)
+	if strings.TrimSpace(req.MachineID) == "" {
+		writeErr(w, http.StatusBadRequest, "machine_id_required")
+		return
+	}
+	ip, err := s.alloc(req.InviteCode, req.MachineID)
+	if errors.Is(err, errCodeInUse) {
+		log.Printf("alloc 一码多机拒绝: code=%s", maskCode(req.InviteCode))
+		writeErr(w, http.StatusConflict, "code_in_use")
+		return
+	}
 	if err != nil {
 		log.Printf("alloc 池满: code=%s", maskCode(req.InviteCode))
 		writeErr(w, http.StatusServiceUnavailable, "pool_exhausted")
 		return
 	}
-	log.Printf("alloc 成功: code=%s ip=%s", maskCode(req.InviteCode), maskIP(ip))
+	log.Printf("alloc 成功: code=%s ip=%s machine=%s", maskCode(req.InviteCode), maskIP(ip), maskMachine(req.MachineID))
 	writeJSON(w, http.StatusOK, allocResp{
 		IP:                  ip,
 		NetworkName:         s.cfg.networkName,
@@ -310,7 +337,7 @@ func (s *allocServer) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if s.heartbeat(req.InviteCode, req.IP) {
+	if s.heartbeat(req.InviteCode, req.IP, req.MachineID) {
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 		return
 	}
@@ -327,7 +354,7 @@ func (s *allocServer) handleRelease(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if s.release(req.InviteCode, req.IP) {
+	if s.release(req.InviteCode, req.IP, req.MachineID) {
 		log.Printf("release 成功: code=%s ip=%s", maskCode(req.InviteCode), maskIP(req.IP))
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -349,6 +376,7 @@ func (s *allocServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 		Used     bool   `json:"used"`
 		Code     string `json:"code,omitempty"`
 		Note     string `json:"note,omitempty"`
+		Machine  string `json:"machine,omitempty"`
 		AgeSec   int64  `json:"age_sec,omitempty"`
 	}
 	ips := make([]ipRow, 0, len(s.pool))
@@ -358,6 +386,7 @@ func (s *allocServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 			row.Used = true
 			row.Code = maskCode(l.Code)
 			row.Note = l.Note
+			row.Machine = maskMachine(l.MachineID)
 			row.AgeSec = int64(time.Since(l.AllocatedAt).Seconds())
 		}
 		ips = append(ips, row)
@@ -482,6 +511,13 @@ func maskCode(code string) string {
 		return "****"
 	}
 	return code[:4] + "****"
+}
+
+func maskMachine(id string) string {
+	if len(id) <= 8 {
+		return "****"
+	}
+	return id[:8] + "****"
 }
 
 func maskIP(ip string) string {

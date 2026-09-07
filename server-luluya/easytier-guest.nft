@@ -18,7 +18,9 @@ table inet easytier_guest {
         # 群友 ping 通性
         iifname "tun0" ip saddr 10.144.0.100-10.144.0.109 icmp type echo-request accept
 
-        # ── 放行端口模板（开服时取消注释并修改） ──
+        # ── 放行端口模板（开服时按需追加） ──
+        # AstrBot 控制台等 Web 服务:
+        iifname "tun0" ip saddr 10.144.0.100-10.144.0.109 tcp dport 6185 accept
         # Minecraft Java 版:
         # iifname "tun0" ip saddr 10.144.0.100-10.144.0.109 tcp dport 25565 accept
         # UDP (Bedrock/语音):
