@@ -3,6 +3,7 @@ astrbot.pem
 *.pem
 *.key
 .env
+开发计划书.md
 ip-alloc-service/data/
 
 # easytier 二进制与下载产物
