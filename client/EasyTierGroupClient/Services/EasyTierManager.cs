@@ -198,7 +198,7 @@ public sealed class EasyTierManager : IDisposable
         {
             var s = KeepPeer(u);
             if (!System.Text.RegularExpressions.Regex.IsMatch(
-                    s, @"^(tcp|udp|wg|quic|ws|wss|faketcp)://[A-Za-z0-9._:\-]+$",
+                    s, @"^(tcp|udp|wg|quic|ws|wss|faketcp)://[A-Za-z0-9._:\-/]+$",
                     System.Text.RegularExpressions.RegexOptions.IgnoreCase))
                 throw new InvalidOperationException("对端地址协议不合法");
         }
@@ -206,9 +206,9 @@ public sealed class EasyTierManager : IDisposable
         return (vip, netName, netSecret, peers);
     }
 
-    /// <summary>对端地址白名单：仅字母数字与 . _ : -（不含引号、空格等 TOML/路径特殊字符）。</summary>
+    /// <summary>对端地址白名单：仅字母数字与 . _ : - /（协议分隔符，不含引号、空格等 TOML/路径特殊字符）。</summary>
     private static string KeepPeer(string url) =>
-        KeepOnly(url, static c => char.IsAsciiLetterOrDigit(c) || "._:-".Contains(c), "对端地址");
+        KeepOnly(url, static c => char.IsAsciiLetterOrDigit(c) || "/._:-".Contains(c), "对端地址");
 
     /// <summary>按白名单字符重建字符串；若有字符被丢弃则抛出异常（拒绝而非截断）。</summary>
     private static string KeepOnly(string input, Func<char, bool> allowed, string what)
