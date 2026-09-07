@@ -22,7 +22,7 @@
 
 ## 快速开始（群友）
 
-1. 到 [Releases](../../releases) 下载 `EasyTier群友客户端.exe`
+1. 到 [Releases](../../releases) 下载 `EasyTierGroupClient.exe`
 2. 双击运行，UAC 弹窗点「是」
 3. 展开设置，粘贴管理员私发的**邀请码**，点「保存并连接」
 4. 首次连接若弹出网络驱动安装窗口，点「允许」
