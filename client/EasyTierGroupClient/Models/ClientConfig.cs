@@ -16,6 +16,9 @@ public sealed class ClientConfig
     /// <summary>服务端 TLS 证书 SHA-256 指纹（内置默认值为生产指纹，防中间人）。</summary>
     public string CertSha256 { get; set; } = "7F43EB81879782AB24A155946FF4AA347F06014AE25744CAD8C9051D8ED4BFBF";
 
+    /// <summary>点击窗口 × 时的行为：ask（每次询问）/ hide（隐藏到托盘）/ exit（退出程序）。</summary>
+    public string CloseAction { get; set; } = "ask";
+
     private static readonly JsonSerializerOptions JsonOpts = new() { WriteIndented = true };
 
     private static string Dir => Path.Combine(

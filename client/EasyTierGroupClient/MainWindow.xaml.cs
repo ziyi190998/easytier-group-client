@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -40,6 +41,7 @@ public partial class MainWindow : Window
 
         InviteBox.Text = _cfg.InviteCode;
         SvcInfoText.Text = $"服务地址：{_cfg.ServiceUrl}";
+        InitCloseActionBox();
 
         InitTray();
         Closed += (_, _) => Cleanup();
@@ -223,6 +225,35 @@ public partial class MainWindow : Window
             MessageBox.Show("邀请码已保存。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
+    // ------------------------------------------------------------------ 关闭行为设置
+
+    private bool _closeActionReady;
+
+    private void InitCloseActionBox()
+    {
+        foreach (ComboBoxItem item in CloseActionBox.Items)
+        {
+            if ((string)item.Tag == _cfg.CloseAction)
+            {
+                item.IsSelected = true;
+                break;
+            }
+        }
+        if (CloseActionBox.SelectedItem is null)
+            ((ComboBoxItem)CloseActionBox.Items[0]).IsSelected = true;
+        _closeActionReady = true;
+    }
+
+    private void CloseActionBox_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (!_closeActionReady) return;
+        if (CloseActionBox.SelectedItem is ComboBoxItem item && (string)item.Tag != _cfg.CloseAction)
+        {
+            _cfg.CloseAction = (string)item.Tag;
+            _cfg.Save();
+        }
+    }
+
     private void ShowWindow()
     {
         Show();
@@ -232,13 +263,37 @@ public partial class MainWindow : Window
 
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
     {
-        if (!_reallyExit)
+        if (_reallyExit)
         {
-            e.Cancel = true;
-            Hide();
+            base.OnClosing(e);
             return;
         }
-        base.OnClosing(e);
+
+        e.Cancel = true; // 先一律取消，按选择分流
+
+        switch (_cfg.CloseAction)
+        {
+            case "hide":
+                Hide();
+                return;
+            case "exit":
+                _ = ExitAppAsync();
+                return;
+            default:
+                var dlg = new CloseDialog { Owner = this };
+                if (dlg.ShowDialog() != true)
+                    return; // 取消：留在原地
+                if (dlg.Remember)
+                {
+                    _cfg.CloseAction = dlg.Choice == CloseChoice.Exit ? "exit" : "hide";
+                    _cfg.Save();
+                }
+                if (dlg.Choice == CloseChoice.Exit)
+                    _ = ExitAppAsync();
+                else
+                    Hide();
+                return;
+        }
     }
 
     private async Task ExitAppAsync()
