@@ -48,11 +48,11 @@ public partial class MainWindow : Window
         UpdateUi();
         _uiTimer.Start();
 
-        // 傻瓜式体验：已保存邀请码则启动即连
-        if (!string.IsNullOrWhiteSpace(_cfg.InviteCode))
-            _orch.Connect();
-        else
-            DetailText.Text = "首次使用：请展开「设置」，填入管理员发给你的邀请码后点击连接。";
+        // 手动连接模式：不自动上线；仅清理上次会话残留（孤儿进程/防火墙规则）
+        _orch.CleanStartupResidue();
+        DetailText.Text = string.IsNullOrWhiteSpace(_cfg.InviteCode)
+            ? "首次使用：请展开「设置」，填入管理员发给你的邀请码。"
+            : "就绪。点击「连接」上线。";
     }
 
     // ------------------------------------------------------------------ 托盘
@@ -296,14 +296,13 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>退出：直接在 UI 线程 await 断开（断开内部为后台有界清理，不会冻结窗口），
+    /// 完成后再 Shutdown，避免清理与退出竞态。</summary>
     private async Task ExitAppAsync()
     {
         _reallyExit = true;
-        await Dispatcher.InvokeAsync(async () =>
-        {
-            Hide();
-            await _orch.DisconnectAsync();
-        });
+        Hide();
+        await _orch.DisconnectAsync();
         Application.Current.Shutdown();
     }
 

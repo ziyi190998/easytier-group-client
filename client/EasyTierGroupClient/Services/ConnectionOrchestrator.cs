@@ -11,18 +11,25 @@ public enum ConnState
 }
 
 /// <summary>连接总编排：申请虚拟 IP → 启动 easytier → 防火墙隔离 → 心跳保活 → 异常自动重连。
+/// 并发与卡死防护设计：
+///   - 每次连接会话有唯一递增「代际号」，旧循环的一切清理动作只在代际仍是当前时生效，
+///     卡死的旧任务苏醒后不会停掉新会话的进程/防火墙/租约；
+///   - 断开与退出路径全部后台执行且有界（15 秒兜底），绝不长时间阻塞 UI 线程；
+///   - Connect() 永远可用：发现旧任务未收尾时换新代际直接开新循环，后台回收旧任务。
 /// 口令仅在内存中流转，不落盘、不进日志。</summary>
 public sealed class ConnectionOrchestrator : IDisposable
 {
     private readonly ClientConfig _cfg;
     private readonly EasyTierManager _et = new();
     private readonly TrafficMonitor _traffic = new();
-    private readonly CancellationTokenSource _cts = new();
     private readonly object _gate = new();
 
+    private CancellationTokenSource _cts = new();
     private Task? _loopTask;
     private AllocApiClient? _api;
     private AllocInfo? _alloc;
+    private string? _lastTriedCode;
+    private int _generation;
 
     public ConnState State { get; private set; } = ConnState.Disconnected;
     public string? StatusText { get; private set; }
@@ -37,34 +44,92 @@ public sealed class ConnectionOrchestrator : IDisposable
 
     public ConnectionOrchestrator(ClientConfig cfg) => _cfg = cfg;
 
+    /// <summary>应用启动时清理上次会话残留（孤儿 core 进程、防火墙规则）。不发起连接。</summary>
+    public void CleanStartupResidue()
+    {
+        Task.Run(() =>
+        {
+            try
+            {
+                _et.KillStray();
+                FirewallManager.RemoveIsolation();
+                SimpleLog.Info("启动残留清理完成");
+            }
+            catch (Exception ex)
+            {
+                SimpleLog.Error("启动残留清理失败", ex);
+            }
+        });
+    }
+
+    /// <summary>启动连接。始终可用：正在连接/已连接时忽略重复调用；
+    /// 存在未收尾的旧任务（上次断开卡住等罕见情况）时换新代际立即开新循环，旧任务后台自然消亡。</summary>
     public void Connect()
     {
         lock (_gate)
         {
-            if (_loopTask is not null) return;
-            _loopTask = Task.Run(() => RunAsync(_cts.Token));
+            if (_loopTask is { IsCompleted: false } && State is ConnState.Connecting or ConnState.Connected)
+                return; // 已在连接或已连接
+            _generation++;
+            _cts.Cancel();
+            _cts.Dispose();
+            _cts = new CancellationTokenSource();
+            var ct = _cts.Token;
+            var gen = _generation;
+            _loopTask = Task.Run(() => RunAsync(ct, gen));
         }
     }
 
+    /// <summary>断开连接。立即置为未连接状态并允许再次连接；实际清理在后台有界完成。</summary>
     public async Task DisconnectAsync()
     {
         Task? loop;
-        lock (_gate) loop = _loopTask;
-        if (loop is null)
+        lock (_gate)
         {
-            CleanupRuntime();
-            RaiseChanged();
-            return;
+            _generation++; // 旧循环（若仍存活）的清理从此失效
+            loop = _loopTask;
+            _loopTask = null;
+            try { _cts.Cancel(); } catch { }
         }
-        _cts.Cancel();
-        try { await loop; } catch { /* 忽略收尾异常 */ }
-        lock (_gate) _loopTask = null;
+        SetState(ConnState.Disconnected, null);
+
+        await Task.Run(async () =>
+        {
+            // 等旧循环退出，最多 15 秒；卡死则放弃等待，直接强制收尾
+            if (loop is not null)
+            {
+                try { await Task.WhenAny(loop, Task.Delay(TimeSpan.FromSeconds(15))); }
+                catch { }
+                if (!loop.IsCompleted)
+                    SimpleLog.Warn("旧连接任务未按时退出，强制收尾");
+            }
+
+            AllocApiClient? api;
+            string? ip;
+            lock (_gate)
+            {
+                api = _api;
+                ip = _alloc?.Ip;
+                _api = null;
+                _alloc = null;
+            }
+            if (api is not null && ip is not null)
+            {
+                try { await api.ReleaseAsync(_cfg.InviteCode, ip, _cfg.MachineId); }
+                catch { /* 释放尽力而为：服务端心跳超时也会回收 */ }
+                api.Dispose();
+            }
+            _et.Stop();
+            FirewallManager.RemoveIsolation();
+            ConnectedSince = null;
+            ServerReachable = false;
+        });
         RaiseChanged();
     }
 
     // ------------------------------------------------------------------ 主循环
 
-    private async Task RunAsync(CancellationToken ct)
+    private async Task RunAsync(CancellationToken ct, int gen)
     {
         SetState(ConnState.Connecting, "正在连接…");
         try
@@ -96,7 +161,6 @@ public sealed class ConnectionOrchestrator : IDisposable
                 {
                     backoff = TimeSpan.FromSeconds(5); // 成功后重置退避
                     await MaintainAsync(ct);
-                    // Maintain 正常返回 = 连接已丢失，需要重连
                     if (!ct.IsCancellationRequested)
                     {
                         SetState(ConnState.Connecting, "连接中断，正在自动重连…");
@@ -112,9 +176,9 @@ public sealed class ConnectionOrchestrator : IDisposable
             {
                 SimpleLog.Error("连接失败（服务端拒绝）", ex);
                 SetState(ConnState.Connecting, DescribeApiError(ex));
-                if (ex.IsInvalidCode || ex.IsPoolFull)
+                if (ex.IsInvalidCode || ex.IsCodeInUse || ex.IsPoolFull)
                 {
-                    // 邀请码无效或满员：重试无意义，等待用户处理
+                    // 邀请码无效/被占用/满员：重试无意义，等待用户处理
                     await WaitForUserActionAsync(ct);
                     if (ct.IsCancellationRequested) break;
                     continue;
@@ -126,7 +190,7 @@ public sealed class ConnectionOrchestrator : IDisposable
                 SetState(ConnState.Connecting, $"连接失败：{ex.Message}");
             }
 
-            CleanupRuntime();
+            await CleanupAsync(gen);
             if (ct.IsCancellationRequested) break;
 
             try
@@ -141,7 +205,7 @@ public sealed class ConnectionOrchestrator : IDisposable
             backoff = TimeSpan.FromSeconds(Math.Min(maxBackoff.TotalSeconds, backoff.TotalSeconds * 2));
         }
 
-        CleanupRuntime();
+        await CleanupAsync(gen);
         SetState(ConnState.Disconnected, null);
     }
 
@@ -232,7 +296,7 @@ public sealed class ConnectionOrchestrator : IDisposable
         }
     }
 
-    /// <summary>邀请码无效/满员时：停 60 秒等待用户修改后重试（用户断开则退出）。</summary>
+    /// <summary>邀请码无效/占用/满员时：停 60 秒等待用户修改后重试（用户断开则退出）。</summary>
     private async Task WaitForUserActionAsync(CancellationToken ct)
     {
         var waited = 0;
@@ -249,23 +313,33 @@ public sealed class ConnectionOrchestrator : IDisposable
         }
     }
 
-    private string? _lastTriedCode;
-
     // ------------------------------------------------------------------ 清理
 
-    private void CleanupRuntime()
+    /// <summary>会话收尾：释放租约、停进程、移除防火墙规则。
+    /// 仅当代际仍是当前会话时才执行——被新连接/断开接管后，这里的任何动作都可能
+    /// 杀掉新会话的进程或释放新会话的租约，必须整体跳过。</summary>
+    private async Task CleanupAsync(int gen)
     {
-        try
+        AllocApiClient? api;
+        string? ip;
+        lock (_gate)
         {
-            if (_api is not null && _alloc is not null)
-                _api.ReleaseAsync(_cfg.InviteCode, _alloc.Ip, _cfg.MachineId).Wait(TimeSpan.FromSeconds(8));
+            if (gen != _generation) return;
+            api = _api;
+            ip = _alloc?.Ip;
+            _api = null;
+            _alloc = null;
         }
-        catch { /* 释放尽力而为 */ }
+        if (api is not null && ip is not null)
+        {
+            try { await api.ReleaseAsync(_cfg.InviteCode, ip, _cfg.MachineId); }
+            catch { /* 释放尽力而为 */ }
+            api.Dispose();
+        }
         _et.Stop();
         FirewallManager.RemoveIsolation();
         ConnectedSince = null;
         ServerReachable = false;
-        _alloc = null;
     }
 
     // ------------------------------------------------------------------ 杂项
@@ -296,10 +370,10 @@ public sealed class ConnectionOrchestrator : IDisposable
     public void Dispose()
     {
         try { _cts.Cancel(); } catch { }
-        try { _loopTask?.Wait(TimeSpan.FromSeconds(10)); } catch { }
+        try { _generation++; } catch { }
         _api?.Dispose();
         _et.Dispose();
         _traffic.Dispose();
-        _cts.Dispose();
+        try { _cts.Dispose(); } catch { }
     }
 }
