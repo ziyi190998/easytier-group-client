@@ -21,3 +21,6 @@ client/src/*/obj/
 .idea/
 *.user
 Thumbs.db
+
+# Mimosa 扫描器会话状态
+.mimosa/
