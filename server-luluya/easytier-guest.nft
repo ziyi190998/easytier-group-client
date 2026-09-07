@@ -1,0 +1,30 @@
+#!/usr/sbin/nft -f
+# 璐璐娅服务器（VM100 / Arch Linux）· 群友入站白名单
+# 作用域仅限 easytier TUN 网卡(tun0) 且源地址为群友虚拟网段(10.144.0.100~109)：
+#   - 放行 ICMP（连通性测试）与已建立连接的回包
+#   - 其余新建连接默认丢弃（不向群友暴露 SSH 等管理端口）
+#   - 物理网卡/局域网 SSH/中继流量完全不受影响，无自锁风险
+# 后续开服时，在「放行端口模板」处按需追加端口。
+
+destroy table inet easytier_guest
+
+table inet easytier_guest {
+    chain input {
+        type filter hook input priority 0; policy accept;
+
+        # 已建立连接与相关回包
+        iifname "tun0" ip saddr 10.144.0.100-10.144.0.109 ct state established,related accept
+
+        # 群友 ping 通性
+        iifname "tun0" ip saddr 10.144.0.100-10.144.0.109 icmp type echo-request accept
+
+        # ── 放行端口模板（开服时取消注释并修改） ──
+        # Minecraft Java 版:
+        # iifname "tun0" ip saddr 10.144.0.100-10.144.0.109 tcp dport 25565 accept
+        # UDP (Bedrock/语音):
+        # iifname "tun0" ip saddr 10.144.0.100-10.144.0.109 udp dport 19132 accept
+
+        # 其余来自群友的新建入站连接：丢弃
+        iifname "tun0" ip saddr 10.144.0.100-10.144.0.109 drop
+    }
+}

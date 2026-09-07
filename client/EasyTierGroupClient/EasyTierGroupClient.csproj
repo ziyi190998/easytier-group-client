@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>EasyTierGroupClient</RootNamespace>
+    <AssemblyName>EasyTierGroupClient</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Version>1.0.0</Version>
+    <SatelliteResourceLanguages>zh-Hans</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <!-- 内嵌 easytier 2.6.4 原生文件：从仓库 tools/ 目录取（该目录不入库，
+       克隆后需先解压 easytier-windows-x86_64-v2.6.4.zip 到 tools/easytier/ 才能构建）。 -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\tools\easytier\easytier-windows-x86_64\easytier-core.exe" Condition="Exists('..\..\tools\easytier\easytier-windows-x86_64\easytier-core.exe')" LogicalName="native/easytier-core.exe" />
+    <EmbeddedResource Include="..\..\tools\easytier\easytier-windows-x86_64\easytier-cli.exe" Condition="Exists('..\..\tools\easytier\easytier-windows-x86_64\easytier-cli.exe')" LogicalName="native/easytier-cli.exe" />
+    <EmbeddedResource Include="..\..\tools\easytier\easytier-windows-x86_64\wintun.dll" Condition="Exists('..\..\tools\easytier\easytier-windows-x86_64\wintun.dll')" LogicalName="native/wintun.dll" />
+    <EmbeddedResource Include="..\..\tools\easytier\easytier-windows-x86_64\Packet.dll" Condition="Exists('..\..\tools\easytier\easytier-windows-x86_64\Packet.dll')" LogicalName="native/Packet.dll" />
+    <EmbeddedResource Include="..\..\tools\easytier\easytier-windows-x86_64\WinDivert64.sys" Condition="Exists('..\..\tools\easytier\easytier-windows-x86_64\WinDivert64.sys')" LogicalName="native/WinDivert64.sys" />
+  </ItemGroup>
+
+</Project>

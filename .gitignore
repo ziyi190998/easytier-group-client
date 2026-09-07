@@ -1,0 +1,23 @@
+# 密钥与敏感文件（永不提交）
+astrbot.pem
+*.pem
+*.key
+.env
+ip-alloc-service/data/
+
+# easytier 二进制与下载产物
+tools/
+*.zip
+
+# 构建产物
+bin/
+obj/
+publish/
+client/src/*/bin/
+client/src/*/obj/
+
+# IDE / 系统
+.vs/
+.idea/
+*.user
+Thumbs.db

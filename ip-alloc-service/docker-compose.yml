@@ -1,0 +1,25 @@
+services:
+  ip-alloc:
+    build: .
+    image: easytier-ip-alloc:latest
+    container_name: easytier-ip-alloc
+    restart: always
+    ports:
+      - "11020:11020"
+    volumes:
+      - ./data:/data
+    env_file:
+      - .env
+    environment:
+      LISTEN_ADDR: ":11020"
+      DATA_DIR: /data
+      IP_POOL_START: "10.144.0.100"
+      IP_POOL_END: "10.144.0.109"
+      PEER_URLS: "tcp://101.43.121.186:11010"
+      HEARTBEAT_TTL_SEC: "90"
+      HEARTBEAT_INTERVAL_SEC: "30"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--no-check-certificate", "-O-", "https://127.0.0.1:11020/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

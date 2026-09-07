@@ -1,0 +1,12 @@
+[Unit]
+Description=EasyTier guest inbound whitelist on tun0 (group members 10.144.0.100-109)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/nft -f /etc/easytier-guest.nft
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
