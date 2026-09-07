@@ -1,6 +1,8 @@
+using System.Reflection;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using EasyTierGroupClient.Models;
 using EasyTierGroupClient.Services;
 using EasyTierGroupClient.Util;
@@ -22,9 +24,15 @@ public partial class MainWindow : Window
     private readonly Dictionary<ConnState, System.Drawing.Icon?> _trayIcons = new();
     private bool _reallyExit;
 
+    // 托盘状态徽标颜色（System.Drawing，经 ColorTranslator 转换）
+    private static readonly System.Drawing.Color BadgeGreen = System.Drawing.ColorTranslator.FromHtml("#2ECC71");
+    private static readonly System.Drawing.Color BadgeOrange = System.Drawing.ColorTranslator.FromHtml("#F39C12");
+    private static readonly System.Drawing.Color BadgeGray = System.Drawing.ColorTranslator.FromHtml("#8A8F9C");
+
     public MainWindow()
     {
         InitializeComponent();
+        LoadWindowIcon();
         _cfg = ClientConfig.Load();
         _orch = new ConnectionOrchestrator(_cfg);
         _orch.Changed += OnOrchestratorChanged;
@@ -49,9 +57,9 @@ public partial class MainWindow : Window
 
     private void InitTray()
     {
-        _trayIcons[ConnState.Connected] = MakeIcon("#2ECC71");
-        _trayIcons[ConnState.Connecting] = MakeIcon("#F39C12");
-        _trayIcons[ConnState.Disconnected] = MakeIcon("#8A8F9C");
+        _trayIcons[ConnState.Connected] = MakeStateIcon(BadgeGreen);
+        _trayIcons[ConnState.Connecting] = MakeStateIcon(BadgeOrange);
+        _trayIcons[ConnState.Disconnected] = MakeStateIcon(BadgeGray);
 
         _tray = new WinForms.NotifyIcon
         {
@@ -69,17 +77,49 @@ public partial class MainWindow : Window
         UpdateTrayIcon();
     }
 
-    private static System.Drawing.Icon? MakeIcon(string hex)
+    /// <summary>窗口图标：内嵌品牌图（icon.png）。</summary>
+    private void LoadWindowIcon()
     {
         try
         {
-            var color = (System.Drawing.Color)System.Windows.Media.ColorConverter.ConvertFromString(hex);
+            using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("assets/icon.png");
+            if (stream is not null)
+                Icon = BitmapFrame.Create(stream, BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
+        }
+        catch
+        {
+            // 图标失败不影响主流程
+        }
+    }
+
+    /// <summary>托盘图标：品牌图 + 右下角状态色徽标（白描边）。品牌图缺失时退化为纯色圆点。</summary>
+    private static System.Drawing.Icon? MakeStateIcon(System.Drawing.Color badge)
+    {
+        try
+        {
             using var bmp = new System.Drawing.Bitmap(32, 32);
             using var g = System.Drawing.Graphics.FromImage(bmp);
             g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-            g.Clear(System.Drawing.Color.Transparent);
-            using var brush = new System.Drawing.SolidBrush(color);
-            g.FillEllipse(brush, 4, 4, 24, 24);
+            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+
+            using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("assets/icon.png");
+            if (stream is not null)
+            {
+                using var brand = new System.Drawing.Bitmap(stream);
+                g.DrawImage(brand, 0, 0, 32, 32);
+            }
+            else
+            {
+                using var fill = new System.Drawing.SolidBrush(badge);
+                g.Clear(System.Drawing.Color.Transparent);
+                g.FillEllipse(fill, 4, 4, 24, 24);
+            }
+
+            // 右下角状态徽标：白色衬底圆 + 状态色圆
+            g.FillEllipse(System.Drawing.Brushes.White, 19, 19, 13, 13);
+            using var badgeBrush = new System.Drawing.SolidBrush(badge);
+            g.FillEllipse(badgeBrush, 21, 21, 9, 9);
+
             return System.Drawing.Icon.FromHandle(bmp.GetHicon());
         }
         catch

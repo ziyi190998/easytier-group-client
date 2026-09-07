@@ -10,9 +10,15 @@
     <RootNamespace>EasyTierGroupClient</RootNamespace>
     <AssemblyName>EasyTierGroupClient</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <Version>1.0.0</Version>
     <SatelliteResourceLanguages>zh-Hans</SatelliteResourceLanguages>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 托盘图标合成基底（256x256 品牌图） -->
+    <EmbeddedResource Include="Assets\icon.png" LogicalName="assets/icon.png" />
+  </ItemGroup>
 
   <!-- 内嵌 easytier 2.6.4 原生文件：从仓库 tools/ 目录取（该目录不入库，
        克隆后需先解压 easytier-windows-x86_64-v2.6.4.zip 到 tools/easytier/ 才能构建）。 -->
