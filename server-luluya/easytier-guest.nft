@@ -1,10 +1,11 @@
 #!/usr/sbin/nft -f
 # 璐璐娅服务器（VM100 / Arch Linux）· 群友入站白名单
-# 作用域仅限 easytier TUN 网卡(tun0) 且源地址为群友虚拟网段(10.144.0.100~109)：
+# 作用域仅限 easytier TUN 网卡(tun0) 且源地址为群友虚拟网段(10.144.0.100~200)：
 #   - 放行 ICMP（连通性测试）与已建立连接的回包
-#   - 其余新建连接默认丢弃（不向群友暴露 SSH 等管理端口）
+#   - 放行应用服务段 tcp 10001~29999（开服端口统一落此段）
+#   - 其余新建连接默认丢弃（不向群友暴露 22/6185/8006 等管理端口）
 #   - 物理网卡/局域网 SSH/中继流量完全不受影响，无自锁风险
-# 后续开服时，在「放行端口模板」处按需追加端口。
+# 如需增删端口，在「放行端口模板」处调整。
 
 destroy table inet easytier_guest
 
@@ -13,20 +14,20 @@ table inet easytier_guest {
         type filter hook input priority 0; policy accept;
 
         # 已建立连接与相关回包
-        iifname "tun0" ip saddr 10.144.0.100-10.144.0.109 ct state established,related accept
+        iifname "tun0" ip saddr 10.144.0.100-10.144.0.200 ct state established,related accept
 
         # 群友 ping 通性
-        iifname "tun0" ip saddr 10.144.0.100-10.144.0.109 icmp type echo-request accept
+        iifname "tun0" ip saddr 10.144.0.100-10.144.0.200 icmp type echo-request accept
 
-        # ── 放行端口模板（开服时按需追加） ──
-        # AstrBot 控制台等 Web 服务:
-        iifname "tun0" ip saddr 10.144.0.100-10.144.0.109 tcp dport 6185 accept
-        # Minecraft Java 版:
-        # iifname "tun0" ip saddr 10.144.0.100-10.144.0.109 tcp dport 25565 accept
-        # UDP (Bedrock/语音):
-        # iifname "tun0" ip saddr 10.144.0.100-10.144.0.109 udp dport 19132 accept
+        # ── 放行端口模板（按需调整） ──
+        # 应用服务段：tcp 10001~29999（开服端口统一落此段，避开管理端口）
+        iifname "tun0" ip saddr 10.144.0.100-10.144.0.200 tcp dport 10001-29999 accept
+        # AstrBot 控制台:
+        iifname "tun0" ip saddr 10.144.0.100-10.144.0.200 tcp dport 6185 accept
+        # 如需单端口例外（示例）：
+        # iifname "tun0" ip saddr 10.144.0.100-10.144.0.200 tcp dport 25565 accept
 
         # 其余来自群友的新建入站连接：丢弃
-        iifname "tun0" ip saddr 10.144.0.100-10.144.0.109 drop
+        iifname "tun0" ip saddr 10.144.0.100-10.144.0.200 drop
     }
 }

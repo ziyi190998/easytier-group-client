@@ -14,7 +14,7 @@ services:
       LISTEN_ADDR: ":11020"
       DATA_DIR: /data
       IP_POOL_START: "10.144.0.100"
-      IP_POOL_END: "10.144.0.109"
+      IP_POOL_END: "10.144.0.200"
       PEER_URLS: "tcp://101.43.121.186:11010"
       HEARTBEAT_TTL_SEC: "90"
       HEARTBEAT_INTERVAL_SEC: "30"

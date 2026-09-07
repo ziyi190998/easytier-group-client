@@ -11,7 +11,7 @@ public static class FirewallManager
 {
     private const string InRuleName = "EasyTierGroupClient-隔离-入站";
     private const string OutRuleName = "EasyTierGroupClient-隔离-出站";
-    private const string RemoteRange = "10.144.0.100-10.144.0.109";
+    private const string RemoteRange = "10.144.0.100-10.144.0.200";
 
     private const int DirIn = 1;    // NET_FW_RULE_DIR_IN
     private const int DirOut = 2;   // NET_FW_RULE_DIR_OUT
