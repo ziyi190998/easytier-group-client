@@ -24,7 +24,7 @@ import (
 	"fmt"
 	"log"
 	"math/big"
-	mathrand "math/rand"
+	mathrand "math/rand/v2"
 	"net"
 	"net/http"
 	"net/netip"
@@ -199,7 +199,7 @@ func (s *allocServer) alloc(machineID, inviteCode string) (string, error) {
 	if len(free) == 0 {
 		return "", errors.New("pool_exhausted")
 	}
-	ip := free[mathrand.Intn(len(free))]
+	ip := free[mathrand.IntN(len(free))]
 	now := time.Now()
 	note := ""
 	if e, ok := s.codes[inviteCode]; ok && inviteCode != "" {
