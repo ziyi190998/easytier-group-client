@@ -14,16 +14,19 @@ public sealed class TrafficMonitor : IDisposable
     public double RateRx { get; private set; } // 字节/秒
     public double RateTx { get; private set; }
 
-    /// <summary>按本机虚拟 IP 找到 easytier 的 TUN 网卡并开始统计。</summary>
+    /// <summary>按本机虚拟 IP 找到 easytier 的 TUN 网卡并开始统计。
+    /// 精确匹配失败时按 10.144.0. 前缀兜底，不要求网卡状态为 Up。</summary>
     public void Bind(string localVip)
     {
         _nic = NetworkInterface.GetAllNetworkInterfaces().FirstOrDefault(n =>
         {
             try
             {
-                return n.NetworkInterfaceType != NetworkInterfaceType.Loopback
-                    && n.OperationalStatus == OperationalStatus.Up
-                    && n.GetIPProperties().UnicastAddresses.Any(a => a.Address.ToString() == localVip);
+                if (n.NetworkInterfaceType == NetworkInterfaceType.Loopback)
+                    return false;
+                var addrs = n.GetIPProperties().UnicastAddresses;
+                return addrs.Any(a => a.Address.ToString() == localVip)
+                    || addrs.Any(a => a.Address.ToString().StartsWith("10.144.0.", StringComparison.Ordinal));
             }
             catch
             {

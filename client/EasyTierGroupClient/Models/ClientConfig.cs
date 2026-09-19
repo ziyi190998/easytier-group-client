@@ -4,12 +4,9 @@ using EasyTierGroupClient.Util;
 
 namespace EasyTierGroupClient.Models;
 
-/// <summary>客户端本地配置。注意：网络口令不落盘，每次连接时凭邀请码向服务端换取、仅存内存。</summary>
+/// <summary>客户端本地配置。注意：网络口令不落盘，每次连接时向服务端换取、仅存内存。</summary>
 public sealed class ClientConfig
 {
-    /// <summary>群友个人邀请码（由管理员分发）。</summary>
-    public string InviteCode { get; set; } = "";
-
     /// <summary>IP 分配服务地址。</summary>
     public string ServiceUrl { get; set; } = "https://101.43.121.186:11020";
 

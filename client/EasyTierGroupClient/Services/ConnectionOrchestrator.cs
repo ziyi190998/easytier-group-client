@@ -28,7 +28,6 @@ public sealed class ConnectionOrchestrator : IDisposable
     private Task? _loopTask;
     private AllocApiClient? _api;
     private AllocInfo? _alloc;
-    private string? _lastTriedCode;
     private int _generation;
 
     public ConnState State { get; private set; } = ConnState.Disconnected;
@@ -115,7 +114,7 @@ public sealed class ConnectionOrchestrator : IDisposable
             }
             if (api is not null && ip is not null)
             {
-                try { await api.ReleaseAsync(_cfg.InviteCode, ip, _cfg.MachineId); }
+                try { await api.ReleaseAsync(ip, _cfg.MachineId); }
                 catch { /* 释放尽力而为：服务端心跳超时也会回收 */ }
                 api.Dispose();
             }
@@ -141,19 +140,12 @@ public sealed class ConnectionOrchestrator : IDisposable
         {
             SimpleLog.Error("释放内嵌组件失败", ex);
             SetState(ConnState.Connecting, $"客户端组件异常：{ex.Message}");
-            await WaitForUserActionAsync(ct);
-            if (ct.IsCancellationRequested)
-            {
-                SetState(ConnState.Disconnected, null);
-                return;
-            }
         }
         var backoff = TimeSpan.FromSeconds(5);
         var maxBackoff = TimeSpan.FromSeconds(60);
 
         while (!ct.IsCancellationRequested)
         {
-            _lastTriedCode = _cfg.InviteCode;
             try
             {
                 var ok = await ConnectOnceAsync(ct);
@@ -176,13 +168,6 @@ public sealed class ConnectionOrchestrator : IDisposable
             {
                 SimpleLog.Error("连接失败（服务端拒绝）", ex);
                 SetState(ConnState.Connecting, DescribeApiError(ex));
-                if (ex.IsInvalidCode || ex.IsCodeInUse || ex.IsPoolFull)
-                {
-                    // 邀请码无效/被占用/满员：重试无意义，等待用户处理
-                    await WaitForUserActionAsync(ct);
-                    if (ct.IsCancellationRequested) break;
-                    continue;
-                }
             }
             catch (Exception ex)
             {
@@ -214,7 +199,7 @@ public sealed class ConnectionOrchestrator : IDisposable
         _api?.Dispose();
         _api = new AllocApiClient(_cfg.ServiceUrl, _cfg.CertSha256);
         SetState(ConnState.Connecting, "正在申请虚拟 IP…");
-        _alloc = await _api.AllocAsync(_cfg.InviteCode, _cfg.MachineId, ct);
+        _alloc = await _api.AllocAsync(_cfg.MachineId, ct);
         SimpleLog.Info($"已分配虚拟IP {MaskIp(_alloc.Ip)}");
 
         SetState(ConnState.Connecting, "正在建立组网…");
@@ -268,7 +253,7 @@ public sealed class ConnectionOrchestrator : IDisposable
                 bool alive;
                 try
                 {
-                    alive = await _api!.HeartbeatAsync(_cfg.InviteCode, _alloc.Ip, _cfg.MachineId, ct);
+                    alive = await _api!.HeartbeatAsync(_alloc.Ip, _cfg.MachineId, ct);
                     misses = 0;
                 }
                 catch (OperationCanceledException) { throw; }
@@ -296,23 +281,6 @@ public sealed class ConnectionOrchestrator : IDisposable
         }
     }
 
-    /// <summary>邀请码无效/占用/满员时：停 60 秒等待用户修改后重试（用户断开则退出）。</summary>
-    private async Task WaitForUserActionAsync(CancellationToken ct)
-    {
-        var waited = 0;
-        while (waited < 60 && !ct.IsCancellationRequested)
-        {
-            try { await Task.Delay(5000, ct); } catch (OperationCanceledException) { throw; }
-            waited += 5;
-            // 用户改了邀请码后立即重试
-            if (!string.Equals(_cfg.InviteCode, _lastTriedCode, StringComparison.Ordinal))
-            {
-                _lastTriedCode = _cfg.InviteCode;
-                return;
-            }
-        }
-    }
-
     // ------------------------------------------------------------------ 清理
 
     /// <summary>会话收尾：释放租约、停进程、移除防火墙规则。
@@ -330,12 +298,12 @@ public sealed class ConnectionOrchestrator : IDisposable
             _api = null;
             _alloc = null;
         }
-        if (api is not null && ip is not null)
-        {
-            try { await api.ReleaseAsync(_cfg.InviteCode, ip, _cfg.MachineId); }
-            catch { /* 释放尽力而为 */ }
-            api.Dispose();
-        }
+            if (api is not null && ip is not null)
+            {
+                try { await api.ReleaseAsync(ip, _cfg.MachineId); }
+                catch { /* 释放尽力而为 */ }
+                api.Dispose();
+            }
         _et.Stop();
         FirewallManager.RemoveIsolation();
         ConnectedSince = null;
@@ -346,9 +314,7 @@ public sealed class ConnectionOrchestrator : IDisposable
 
     private static string DescribeApiError(AllocApiException ex) => ex switch
     {
-        _ when ex.IsInvalidCode => "邀请码无效或已被停用，请打开「设置」检查邀请码。",
-        _ when ex.IsCodeInUse => "这个邀请码正在另一台电脑上使用（一人一码一机）。请勿共用邀请码，或联系管理员换新码。",
-        _ when ex.IsPoolFull => "当前在线人数已满（最多 10 人），请稍后再试。",
+        _ when ex.IsPoolFull => "当前在线人数已满，将自动重试…",
         _ => $"服务端返回错误：{ex.Message}",
     };
 

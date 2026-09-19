@@ -37,9 +37,12 @@ public partial class MainWindow : Window
         _cfg = ClientConfig.Load();
         _orch = new ConnectionOrchestrator(_cfg);
         _orch.Changed += OnOrchestratorChanged;
-        _uiTimer.Tick += (_, _) => UpdateUi();
+        _uiTimer.Tick += (_, _) =>
+        {
+            _orch.Traffic.Sample(); // 采样流量增量，供 UpdateUi 显示
+            UpdateUi();
+        };
 
-        InviteBox.Text = _cfg.InviteCode;
         SvcInfoText.Text = $"服务地址：{_cfg.ServiceUrl}";
         InitCloseActionBox();
 
@@ -50,9 +53,7 @@ public partial class MainWindow : Window
 
         // 手动连接模式：不自动上线；仅清理上次会话残留（孤儿进程/防火墙规则）
         _orch.CleanStartupResidue();
-        DetailText.Text = string.IsNullOrWhiteSpace(_cfg.InviteCode)
-            ? "首次使用：请展开「设置」，填入管理员发给你的邀请码。"
-            : "就绪。点击「连接」上线。";
+        DetailText.Text = "就绪。点击「连接」上线。";
     }
 
     // ------------------------------------------------------------------ 托盘
@@ -70,7 +71,7 @@ public partial class MainWindow : Window
         };
         var menu = new WinForms.ContextMenuStrip();
         menu.Items.Add("显示主窗口", null, (_, _) => ShowWindow());
-        menu.Items.Add("连接", null, (_, _) => Dispatcher.Invoke(ConnectFromUi));
+        menu.Items.Add("连接", null, (_, _) => Dispatcher.Invoke(() => _orch.Connect()));
         menu.Items.Add("断开", null, (_, _) => Dispatcher.Invoke(async () => await DisconnectFromUi()));
         menu.Items.Add(new WinForms.ToolStripSeparator());
         menu.Items.Add("退出", null, async (_, _) => await ExitAppAsync());
@@ -183,7 +184,7 @@ public partial class MainWindow : Window
             TxText.Text = "—";
         }
 
-        var hasCode = !string.IsNullOrWhiteSpace(_cfg.InviteCode);
+        var hasCode = true; // 邀请码机制已移除，任何时候都可点连接
         ConnectBtn.IsEnabled = st == ConnState.Disconnected && hasCode;
         DisconnectBtn.IsEnabled = st != ConnState.Disconnected;
         UpdateTrayIcon();
@@ -191,39 +192,11 @@ public partial class MainWindow : Window
 
     // ------------------------------------------------------------------ 交互
 
-    private void ConnectBtn_Click(object sender, RoutedEventArgs e) => ConnectFromUi();
-
-    private void ConnectFromUi()
-    {
-        SaveInviteCode(silent: true);
-        if (string.IsNullOrWhiteSpace(_cfg.InviteCode))
-        {
-            DetailText.Text = "请先在「设置」里填入邀请码。";
-            return;
-        }
-        _orch.Connect();
-    }
+    private void ConnectBtn_Click(object sender, RoutedEventArgs e) => _orch.Connect();
 
     private async void DisconnectBtn_Click(object sender, RoutedEventArgs e) => await DisconnectFromUi();
 
     private async Task DisconnectFromUi() => await _orch.DisconnectAsync();
-
-    private void SaveBtn_Click(object sender, RoutedEventArgs e)
-    {
-        SaveInviteCode(silent: false);
-        if (!string.IsNullOrWhiteSpace(_cfg.InviteCode) && _orch.State == ConnState.Disconnected)
-            _orch.Connect();
-    }
-
-    private void SaveInviteCode(bool silent)
-    {
-        var code = InviteBox.Text.Trim();
-        if (code == _cfg.InviteCode) return;
-        _cfg.InviteCode = code;
-        _cfg.Save();
-        if (!silent)
-            MessageBox.Show("邀请码已保存。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
-    }
 
     // ------------------------------------------------------------------ 关闭行为设置
 

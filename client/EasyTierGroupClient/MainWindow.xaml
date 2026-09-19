@@ -59,14 +59,9 @@
         </StackPanel>
 
         <!-- 设置 -->
-        <Expander Grid.Row="4" Header="设置（首次使用需填邀请码）" Foreground="#E6E8EF" Background="Transparent" IsExpanded="False">
+        <Expander Grid.Row="4" Header="设置" Foreground="#E6E8EF" Background="Transparent" IsExpanded="False">
             <StackPanel Margin="0,12,0,0">
-                <TextBlock Text="邀请码（由管理员单独发给你，勿外传）" Foreground="#9AA0AC" FontSize="12" Margin="0,0,0,6"/>
-                <TextBox x:Name="InviteBox" Height="30" FontSize="13" Background="#232733"
-                         Foreground="#E6E8EF" BorderBrush="#3A3F4D" VerticalContentAlignment="Center"/>
-                <Button x:Name="SaveBtn" Content="保存邀请码" Width="110" Height="30" Margin="0,10,0,0"
-                        HorizontalAlignment="Left" Click="SaveBtn_Click"/>
-                <TextBlock Text="点击窗口 × 时" Foreground="#9AA0AC" FontSize="12" Margin="0,14,0,6"/>
+                <TextBlock Text="点击窗口 × 时" Foreground="#9AA0AC" FontSize="12" Margin="0,0,0,6"/>
                 <ComboBox x:Name="CloseActionBox" Height="30" FontSize="13" Width="180"
                           HorizontalAlignment="Left" SelectionChanged="CloseActionBox_SelectionChanged">
                     <ComboBoxItem Content="每次询问" Tag="ask"/>
